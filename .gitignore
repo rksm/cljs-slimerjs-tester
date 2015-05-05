@@ -1,0 +1,4 @@
+.lein-failures
+cloxp-cljs-build/
+pom.xml*
+target/
