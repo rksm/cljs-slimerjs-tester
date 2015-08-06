@@ -1,4 +1,4 @@
-1(ns cljs-slimerjs-tester.core
+(ns cljs-slimerjs-tester.core
   (:require [org.httpkit.server :as http]
             [rksm.subprocess :as subp]
             [clojure.test :as test]
@@ -40,13 +40,23 @@ setTimeout(function() {
         runner-ns (-> full-qualified-runner-func namespace munge)
         runner-call (-> full-qualified-runner-func
                       munge
-                      (clojure.string/replace #"_SLASH_" "."))]
+                      (clojure.string/replace #"_SLASH_" "."))
+        ; "foo.bar.baz" -> [["foo"] ["foo" "bar"] ["foo" "bar" "baz"]]
+        runner-call-parts (->> (clojure.string/split runner-call #"\.")
+                            (reductions (fn [last ea] (conj last ea)) [])
+                            (filter not-empty)
+                            (map (partial clojure.string/join ".")))
+        typeof-test  (->> runner-call-parts
+                       (map (fn [ea] (str "typeof " ea " === 'undefined'")))
+                       (clojure.string/join " || "))
+        safe-runner-call (format "var interval = setInterval(function() { if (%s) return; clearInterval(interval); %s(); }, 10);"
+                                 typeof-test runner-call)]
     (format "<html>
      <title>cljs tests run by slimerjs</title>
      %s
      <script>goog.require('%s');</script>
-     <body><script>%s();</script></body>
-     </html>" scripts runner-ns runner-call)))
+     <body><script>%s</script></body>
+     </html>" scripts runner-ns safe-runner-call)))
 
 (defn- serve-test-files
   [resource-dir bootstrap-js-scripts runner-func-name]
@@ -75,7 +85,7 @@ setTimeout(function() {
   [base-url timeout-ms]
   (let [file (java.io.File/createTempFile "slimerjs-test" ".js")
         _ (spit file (slimerjs-test-js base-url timeout-ms))
-        cmd+args ["slimerjs" (str file)]
+        cmd+args ["slimerjs" (str file) :verbose? true]
         cmd+args (case (System/getProperty "os.name")
                    "Mac OS X" (conj cmd+args :env {"SLIMERJSLAUNCHER" "/Applications/Firefox.app/Contents/MacOS/firefox"})
                    cmd+args)
@@ -115,7 +125,7 @@ setTimeout(function() {
 (defn server-for-manual-testing
   [& [port]]
   (let [app (serve-test-files (abs-path "cloxp-cljs-build/")
-                              ["/cloxp-cljs.js"]
+                              ["/out/goog/base.js" "/cloxp-cljs.js"]
                               'rksm.cloxp-com.test-runner/runner)]
     (def stop (org.httpkit.server/run-server app  {:port (or port 8095)}))))
 
